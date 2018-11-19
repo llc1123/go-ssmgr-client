@@ -124,10 +124,10 @@ func main() {
 		return
 	}
 	console, control, status := make(chan string), make(chan string), make(chan string)
-	go s.ping(console, control)
 	go s.listen(console, control, status)
 	go s.recordStatus(console, status)
 	go func() {
+		s.ping(console, control)
 		s.addPort(8123, "123", console, control)
 		s.removePort(8123, console, control)
 	}()
