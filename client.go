@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 )
 
 type ssmgr struct {
@@ -28,6 +29,7 @@ func (s *ssmgr) listen(console chan string, control chan string, status chan str
 		nRead, _, err := s.conn.ReadFrom(s.buffer)
 		if err != nil {
 			console <- fmt.Sprint(err)
+			continue
 		}
 		res := string(s.buffer[:nRead])
 		if res == "ok" || res == "pong" {
@@ -56,11 +58,15 @@ func (s *ssmgr) ping(console chan string, control chan string) error {
 		return err
 	}
 	console <- "control request: [ping]"
-	res := <-control
-	if res == "pong" {
-		return nil
+	select {
+	case res := <-control:
+		if res == "pong" {
+			return nil
+		}
+		return fmt.Errorf("unknown response: [%v]", res)
+	case <-time.After(1 * time.Second):
+		return fmt.Errorf("control request timed out: [ping]")
 	}
-	return fmt.Errorf("unknown response: [%v]", res)
 }
 
 func (s *ssmgr) addPort(port int, password string, console chan string, control chan string) error {
@@ -69,11 +75,15 @@ func (s *ssmgr) addPort(port int, password string, console chan string, control 
 		return err
 	}
 	console <- fmt.Sprintf(`control request: [add: {"server_port": %v, "password":"%v"}]`, port, password)
-	res := <-control
-	if res == "ok" {
-		return nil
+	select {
+	case res := <-control:
+		if res == "ok" {
+			return nil
+		}
+		return fmt.Errorf("unknown response: [%v]", res)
+	case <-time.After(1 * time.Second):
+		return fmt.Errorf("control request timed out: [add]")
 	}
-	return fmt.Errorf("unknown response: [%v]", res)
 }
 
 func (s *ssmgr) removePort(port int, console chan string, control chan string) error {
@@ -82,11 +92,15 @@ func (s *ssmgr) removePort(port int, console chan string, control chan string) e
 		return err
 	}
 	console <- fmt.Sprintf(`control request: [remove: {"server_port": %v}]`, port)
-	res := <-control
-	if res == "ok" {
-		return nil
+	select {
+	case res := <-control:
+		if res == "ok" {
+			return nil
+		}
+		return fmt.Errorf("unknown response: [%v]", res)
+	case <-time.After(1 * time.Second):
+		return fmt.Errorf("control request timed out: [remove]")
 	}
-	return fmt.Errorf("unknown response: %v", res)
 }
 
 func (s *ssmgr) recordStatus(console chan string, status chan string) error {
@@ -96,7 +110,7 @@ func (s *ssmgr) recordStatus(console chan string, status chan string) error {
 		var objmap map[string]interface{}
 		err := json.Unmarshal(data, &objmap)
 		if err != nil {
-			console <- fmt.Sprintf("json decode error: [%v]", res)
+			console <- fmt.Sprintf("json decode error: [%v][%v]", res, err)
 			continue
 		}
 		for key, value := range objmap {
@@ -127,9 +141,18 @@ func main() {
 	go s.listen(console, control, status)
 	go s.recordStatus(console, status)
 	go func() {
-		s.ping(console, control)
-		s.addPort(8123, "123", console, control)
-		s.removePort(8123, console, control)
+		err = s.ping(console, control)
+		if err != nil {
+			console <- fmt.Sprint(err)
+		}
+		err = s.addPort(8123, "123", console, control)
+		if err != nil {
+			console <- fmt.Sprint(err)
+		}
+		err = s.removePort(8123, console, control)
+		if err != nil {
+			console <- fmt.Sprint(err)
+		}
 	}()
 	for {
 		fmt.Println(<-console)
