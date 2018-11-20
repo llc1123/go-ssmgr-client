@@ -1,4 +1,4 @@
-package main
+package ssmgr
 
 import (
 	"encoding/json"

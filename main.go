@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/llc1123/go-ssmgr-client/ssmgr"
 )
 
 func main() {
 	addr := "localhost:4000"
-	s := NewSsmgr(addr)
+	s := ssmgr.NewSsmgr(addr)
 	console := make(chan string)
 	ready := make(chan bool)
 	fatal := make(chan string)
@@ -18,10 +20,10 @@ func main() {
 	}()
 	go func() {
 		<-ready
-		go s.AddPort(8123, "123")
-		go s.AddPort(8234, "456")
-		go s.RemovePort(8123)
-		go s.RemovePort(8456)
+		s.AddPort(8123, "123")
+		s.AddPort(8234, "456")
+		s.RemovePort(8123)
+		s.RemovePort(8234)
 	}()
 	for {
 		select {
