@@ -46,7 +46,10 @@ func (s *ssmgr) listen(console chan string, control chan string, status chan str
 
 func (s *ssmgr) keepAlive(console chan string, control chan string) {
 	for {
-		s.ping(console, control)
+		err := s.ping(console, control)
+		if err != nil {
+			console <- fmt.Sprint(err)
+		}
 		time.Sleep(5 * time.Second)
 	}
 }
