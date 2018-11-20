@@ -5,83 +5,110 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 )
 
-type ssmgr struct {
-	addr   string
-	conn   *net.UDPConn
-	buffer []byte
-	stat   map[int]int
+//Ssmgr instance
+type Ssmgr struct {
+	addr    string
+	conn    *net.UDPConn
+	buffer  []byte
+	stat    map[int]int
+	console chan string
+	control chan string
+	status  chan string
+	sendMux sync.Mutex
 }
 
-func (s *ssmgr) connect() error {
+//NewSsmgr initialize new ssmgr instance
+func NewSsmgr(addr string) *Ssmgr {
+	return &Ssmgr{
+		addr:    addr,
+		conn:    nil,
+		buffer:  make([]byte, 1506),
+		stat:    make(map[int]int),
+		console: make(chan string),
+		control: make(chan string, 1),
+		status:  make(chan string),
+	}
+}
+
+func (s *Ssmgr) connect() error {
 	raddr, err := net.ResolveUDPAddr("udp", s.addr)
 	if err != nil {
 		return err
 	}
 	s.conn, _ = net.DialUDP("udp", nil, raddr)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func (s *ssmgr) listen(console chan string, control chan string, status chan string) {
+func (s *Ssmgr) listen() {
 	for {
 		nRead, _, err := s.conn.ReadFrom(s.buffer)
 		if err != nil {
-			console <- fmt.Sprint(err)
+			s.console <- fmt.Sprint(err)
 			continue
 		}
 		res := string(s.buffer[:nRead])
 		if res == "ok" || res == "pong" {
-			control <- res
-			console <- fmt.Sprintf("control response: [%v]", res)
+			select {
+			case <-s.control:
+				s.control <- res
+			default:
+				s.control <- res
+			}
+			s.console <- fmt.Sprintf("control response: [%v]", res)
 		} else if res[:4] == "stat" {
-			status <- res
-			console <- fmt.Sprintf("status message: [%v]", res)
+			s.status <- res
+			s.console <- fmt.Sprintf("status message: [%v]", res)
 		} else {
-			console <- fmt.Sprintf("unknown message: [%v]", res)
+			s.console <- fmt.Sprintf("unknown message: [%v]", res)
 		}
 	}
 }
 
-func (s *ssmgr) keepAlive(console chan string, control chan string) {
+func (s *Ssmgr) keepAlive() {
 	for {
-		err := s.ping(console, control)
+		err := s.ping()
 		if err != nil {
-			console <- fmt.Sprint(err)
+			s.console <- fmt.Sprint(err)
 		}
 		time.Sleep(5 * time.Second)
 	}
 }
 
-func (s *ssmgr) recordStatus(console chan string, status chan string) error {
+func (s *Ssmgr) recordStatus() {
 	for {
-		res := <-status
+		res := <-s.status
 		data := []byte(res[6:])
 		var objmap map[string]interface{}
 		err := json.Unmarshal(data, &objmap)
 		if err != nil {
-			console <- fmt.Sprintf("json decode error: [%v][%v]", res, err)
+			s.console <- fmt.Sprintf("json decode error: [%v][%v]", res, err)
 			continue
 		}
 		for key, value := range objmap {
 			k, e := strconv.Atoi(key)
 			if e != nil {
-				console <- fmt.Sprintf("invalid key: [%v]", key)
+				s.console <- fmt.Sprintf("invalid key: [%v]", key)
 				continue
 			}
 			v, ok := value.(float64)
 			if !ok {
-				console <- fmt.Sprintf("invalid value: [%v]", value)
+				s.console <- fmt.Sprintf("invalid value: [%v]", value)
 				continue
 			}
 			s.stat[k] += int(v)
-			console <- fmt.Sprintf("total flow at port %v: %v", k, s.stat[k])
+			s.console <- fmt.Sprintf("total flow at port %v: %v", k, s.stat[k])
 		}
 	}
 }
 
-func (s *ssmgr) sendCommand(cmd string) error {
+func (s *Ssmgr) sendCommand(cmd string) error {
 	_, err := fmt.Fprint(s.conn, cmd)
 	if err != nil {
 		return err
@@ -89,14 +116,17 @@ func (s *ssmgr) sendCommand(cmd string) error {
 	return nil
 }
 
-func (s *ssmgr) ping(console chan string, control chan string) error {
+func (s *Ssmgr) ping() error {
+	s.sendMux.Lock()
+	defer s.sendMux.Unlock()
+
 	err := s.sendCommand("ping")
 	if err != nil {
 		return err
 	}
-	console <- "control request: [ping]"
+	s.console <- "control request: [ping]"
 	select {
-	case res := <-control:
+	case res := <-s.control:
 		if res == "pong" {
 			return nil
 		}
@@ -106,14 +136,18 @@ func (s *ssmgr) ping(console chan string, control chan string) error {
 	}
 }
 
-func (s *ssmgr) addPort(port int, password string, console chan string, control chan string) error {
+//AddPort method adds a port to ssmgr
+func (s *Ssmgr) AddPort(port int, password string) error {
+	s.sendMux.Lock()
+	defer s.sendMux.Unlock()
+
 	err := s.sendCommand(fmt.Sprintf(`add: {"server_port": %v, "password":"%v"}`, port, password))
 	if err != nil {
 		return err
 	}
-	console <- fmt.Sprintf(`control request: [add: {"server_port": %v, "password":"%v"}]`, port, password)
+	s.console <- fmt.Sprintf(`control request: [add: {"server_port": %v, "password":"%v"}]`, port, password)
 	select {
-	case res := <-control:
+	case res := <-s.control:
 		if res == "ok" {
 			return nil
 		}
@@ -123,14 +157,18 @@ func (s *ssmgr) addPort(port int, password string, console chan string, control 
 	}
 }
 
-func (s *ssmgr) removePort(port int, console chan string, control chan string) error {
+//RemovePort removes a port from ssmgr
+func (s *Ssmgr) RemovePort(port int) error {
+	s.sendMux.Lock()
+	defer s.sendMux.Unlock()
+
 	err := s.sendCommand(fmt.Sprintf(`remove: {"server_port": %v}`, port))
 	if err != nil {
 		return err
 	}
-	console <- fmt.Sprintf(`control request: [remove: {"server_port": %v}]`, port)
+	s.console <- fmt.Sprintf(`control request: [remove: {"server_port": %v}]`, port)
 	select {
-	case res := <-control:
+	case res := <-s.control:
 		if res == "ok" {
 			return nil
 		}
@@ -140,28 +178,18 @@ func (s *ssmgr) removePort(port int, console chan string, control chan string) e
 	}
 }
 
-func main() {
-	s := ssmgr{"localhost:4000", nil, make([]byte, 2048), make(map[int]int)}
+//Start the ssmgr daemon
+func (s *Ssmgr) Start(console chan string, ready chan bool) error {
 	err := s.connect()
 	if err != nil {
-		fmt.Println(err)
-		return
+		return err
 	}
-	console, control, status := make(chan string), make(chan string), make(chan string)
-	go s.listen(console, control, status)
-	go s.recordStatus(console, status)
-	go s.keepAlive(console, control)
-	go func() {
-		err = s.addPort(8123, "123", console, control)
-		if err != nil {
-			console <- fmt.Sprint(err)
-		}
-		err = s.removePort(8123, console, control)
-		if err != nil {
-			console <- fmt.Sprint(err)
-		}
-	}()
+	go s.listen()
+	go s.recordStatus()
+	go s.keepAlive()
+	ready <- true
 	for {
-		fmt.Println(<-console)
+		c := <-s.console
+		console <- c
 	}
 }
