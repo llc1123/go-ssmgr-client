@@ -44,6 +44,40 @@ func (s *ssmgr) listen(console chan string, control chan string, status chan str
 	}
 }
 
+func (s *ssmgr) keepAlive(console chan string, control chan string) {
+	for {
+		s.ping(console, control)
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func (s *ssmgr) recordStatus(console chan string, status chan string) error {
+	for {
+		res := <-status
+		data := []byte(res[6:])
+		var objmap map[string]interface{}
+		err := json.Unmarshal(data, &objmap)
+		if err != nil {
+			console <- fmt.Sprintf("json decode error: [%v][%v]", res, err)
+			continue
+		}
+		for key, value := range objmap {
+			k, e := strconv.Atoi(key)
+			if e != nil {
+				console <- fmt.Sprintf("invalid key: [%v]", key)
+				continue
+			}
+			v, ok := value.(float64)
+			if !ok {
+				console <- fmt.Sprintf("invalid value: [%v]", value)
+				continue
+			}
+			s.stat[k] += int(v)
+			console <- fmt.Sprintf("total flow at port %v: %v", k, s.stat[k])
+		}
+	}
+}
+
 func (s *ssmgr) sendCommand(cmd string) error {
 	_, err := fmt.Fprint(s.conn, cmd)
 	if err != nil {
@@ -103,33 +137,6 @@ func (s *ssmgr) removePort(port int, console chan string, control chan string) e
 	}
 }
 
-func (s *ssmgr) recordStatus(console chan string, status chan string) error {
-	for {
-		res := <-status
-		data := []byte(res[6:])
-		var objmap map[string]interface{}
-		err := json.Unmarshal(data, &objmap)
-		if err != nil {
-			console <- fmt.Sprintf("json decode error: [%v][%v]", res, err)
-			continue
-		}
-		for key, value := range objmap {
-			k, e := strconv.Atoi(key)
-			if e != nil {
-				console <- fmt.Sprintf("invalid key: [%v]", key)
-				continue
-			}
-			v, ok := value.(float64)
-			if !ok {
-				console <- fmt.Sprintf("invalid value: [%v]", value)
-				continue
-			}
-			s.stat[k] += int(v)
-			console <- fmt.Sprintf("total flow at port %v: %v", k, s.stat[k])
-		}
-	}
-}
-
 func main() {
 	s := ssmgr{"localhost:4000", nil, make([]byte, 2048), make(map[int]int)}
 	err := s.connect()
@@ -140,11 +147,8 @@ func main() {
 	console, control, status := make(chan string), make(chan string), make(chan string)
 	go s.listen(console, control, status)
 	go s.recordStatus(console, status)
+	go s.keepAlive(console, control)
 	go func() {
-		err = s.ping(console, control)
-		if err != nil {
-			console <- fmt.Sprint(err)
-		}
 		err = s.addPort(8123, "123", console, control)
 		if err != nil {
 			console <- fmt.Sprint(err)
