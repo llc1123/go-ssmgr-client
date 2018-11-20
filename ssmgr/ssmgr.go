@@ -19,6 +19,7 @@ type Ssmgr struct {
 	control chan string
 	status  chan string
 	sendMux sync.Mutex
+	flowMux sync.Mutex
 }
 
 //NewSsmgr initialize new ssmgr instance
@@ -102,8 +103,10 @@ func (s *Ssmgr) recordStatus() {
 				s.console <- fmt.Sprintf("invalid value: [%v]", value)
 				continue
 			}
+			s.flowMux.Lock()
 			s.stat[k] += int(v)
-			s.console <- fmt.Sprintf("total flow at port %v: %v", k, s.stat[k])
+			s.flowMux.Unlock()
+			// s.console <- fmt.Sprintf("total flow at port %v: %v", k, s.stat[k])
 		}
 	}
 }
@@ -176,6 +179,15 @@ func (s *Ssmgr) RemovePort(port int) error {
 	case <-time.After(1 * time.Second):
 		return fmt.Errorf("control request timed out: [remove]")
 	}
+}
+
+//GetFlow outputs the current flow stats and reset
+func (s *Ssmgr) GetFlow() map[int]int {
+	s.flowMux.Lock()
+	defer s.flowMux.Unlock()
+	m := s.stat
+	s.stat = make(map[int]int)
+	return m
 }
 
 //Start the ssmgr daemon
