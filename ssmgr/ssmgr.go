@@ -81,6 +81,11 @@ func (s *Ssmgr) keepAlive() {
 		if err != nil {
 			s.console <- fmt.Sprint(err)
 		}
+		s.portsMux.Lock()
+		for pt, pw := range s.ports {
+			s.addPort(pt, pw)
+		}
+		s.portsMux.Unlock()
 		time.Sleep(5 * time.Second)
 	}
 }
