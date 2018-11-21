@@ -26,10 +26,6 @@ func main() {
 	//START CONTROL MODULE
 	go func() {
 		<-ready
-		s.AddPort(8123, "123")
-		s.AddPort(8234, "456")
-		s.RemovePort(8123)
-		s.RemovePort(8234)
 		go func() {
 			for {
 				time.Sleep(20 * time.Second)
