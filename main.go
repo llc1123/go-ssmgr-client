@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/llc1123/go-ssmgr-client/ssmgr"
 )
@@ -26,15 +25,26 @@ func main() {
 	//START CONTROL MODULE
 	go func() {
 		<-ready
-		go func() {
-			for {
-				time.Sleep(20 * time.Second)
-				m := s.GetFlow()
-				for key, value := range m {
-					console <- fmt.Sprintf("total flow on port %v: %v", key, value)
-				}
-			}
-		}()
+		s.SetPorts(map[int]string{
+			10001: "abc",
+			10002: "bcd",
+			10003: "cde",
+			10004: "def",
+		})
+		s.SetPorts(map[int]string{
+			10002: "cde",
+			10003: "cde",
+			10005: "efg",
+		})
+		// go func() {
+		// 	for {
+		// 		time.Sleep(20 * time.Second)
+		// 		m := s.GetFlow()
+		// 		for key, value := range m {
+		// 			console <- fmt.Sprintf("total flow on port %v: %v", key, value)
+		// 		}
+		// 	}
+		// }()
 	}()
 
 	//KEEP MAIN THREAD UP AND PRINT CONSOLE LOG

@@ -11,15 +11,17 @@ import (
 
 //Ssmgr instance
 type Ssmgr struct {
-	addr    string
-	conn    *net.UDPConn
-	buffer  []byte
-	stat    map[int]int
-	console chan string
-	control chan string
-	status  chan string
-	sendMux sync.Mutex
-	flowMux sync.Mutex
+	addr     string
+	conn     *net.UDPConn
+	buffer   []byte
+	flow     map[int]int
+	ports    map[int]string
+	console  chan string
+	control  chan string
+	status   chan string
+	sendMux  sync.Mutex
+	flowMux  sync.Mutex
+	portsMux sync.Mutex
 }
 
 //NewSsmgr initialize new ssmgr instance
@@ -28,7 +30,8 @@ func NewSsmgr(addr string) *Ssmgr {
 		addr:    addr,
 		conn:    nil,
 		buffer:  make([]byte, 1506),
-		stat:    make(map[int]int),
+		flow:    make(map[int]int),
+		ports:   make(map[int]string),
 		console: make(chan string),
 		control: make(chan string, 1),
 		status:  make(chan string),
@@ -40,7 +43,7 @@ func (s *Ssmgr) connect() error {
 	if err != nil {
 		return err
 	}
-	s.conn, _ = net.DialUDP("udp", nil, raddr)
+	s.conn, err = net.DialUDP("udp", nil, raddr)
 	if err != nil {
 		return err
 	}
@@ -104,9 +107,9 @@ func (s *Ssmgr) recordStatus() {
 				continue
 			}
 			s.flowMux.Lock()
-			s.stat[k] += int(v)
+			s.flow[k] += int(v)
 			s.flowMux.Unlock()
-			// s.console <- fmt.Sprintf("total flow at port %v: %v", k, s.stat[k])
+			// s.console <- fmt.Sprintf("total flow at port %v: %v", k, s.flow[k])
 		}
 	}
 }
@@ -139,8 +142,7 @@ func (s *Ssmgr) ping() error {
 	}
 }
 
-//AddPort method adds a port to ssmgr
-func (s *Ssmgr) AddPort(port int, password string) error {
+func (s *Ssmgr) addPort(port int, password string) error {
 	s.sendMux.Lock()
 	defer s.sendMux.Unlock()
 
@@ -160,8 +162,7 @@ func (s *Ssmgr) AddPort(port int, password string) error {
 	}
 }
 
-//RemovePort removes a port from ssmgr
-func (s *Ssmgr) RemovePort(port int) error {
+func (s *Ssmgr) removePort(port int) error {
 	s.sendMux.Lock()
 	defer s.sendMux.Unlock()
 
@@ -185,9 +186,37 @@ func (s *Ssmgr) RemovePort(port int) error {
 func (s *Ssmgr) GetFlow() map[int]int {
 	s.flowMux.Lock()
 	defer s.flowMux.Unlock()
-	m := s.stat
-	s.stat = make(map[int]int)
+	m := s.flow
+	s.flow = make(map[int]int)
 	return m
+}
+
+//SetPorts sets ports and passwords and returns flow before the change
+func (s *Ssmgr) SetPorts(p map[int]string) map[int]int {
+	s.portsMux.Lock()
+	defer s.portsMux.Unlock()
+
+	remove := make([]int, 0)
+	add := make(map[int]string)
+	for pt, pw := range s.ports {
+		if p[pt] != pw {
+			remove = append(remove, pt)
+		}
+	}
+	for pt, pw := range p {
+		if s.ports[pt] != pw {
+			add[pt] = pw
+		}
+	}
+	for _, pt := range remove {
+		s.removePort(pt)
+	}
+	flow := s.GetFlow()
+	for pt, pw := range add {
+		s.addPort(pt, pw)
+	}
+	s.ports = p
+	return flow
 }
 
 //Start the ssmgr daemon
