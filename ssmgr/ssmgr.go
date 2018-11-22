@@ -40,6 +40,7 @@ func NewSsmgr(mgrPort int, mgrCrypto string) (*Ssmgr, error) {
 	if err := s.connect(); err != nil {
 		return nil, err
 	}
+	s.portsMux.Lock()
 	go s.listen()
 	return &s, nil
 }
@@ -65,15 +66,14 @@ func (s *Ssmgr) listen() {
 			continue
 		}
 		res := string(buffer[:nRead])
-		if res[:4] == "stat" {
-			s.console <- fmt.Sprintf("status message: [%v]", res)
-			recordStatus(res)
+		if nRead > 4 {
+			if res[:4] == "stat" {
+				s.console <- fmt.Sprintf("status message: [%v]", res)
+				s.recordStatus(res)
+			}
 		} else {
 			s.console <- fmt.Sprintf("control response: [%v]", res)
-			select {
-			case s.control <- res:
-			default:
-			}
+			s.control <- res
 		}
 	}
 }
@@ -120,7 +120,7 @@ func (s *Ssmgr) sendCommand(cmd string) (string, error) {
 	case res := <-s.control:
 		return res, nil
 	case <-time.After(1 * time.Second):
-		return "", fmt.Errorf("control request timed out: [ping]")
+		return "", fmt.Errorf("control request timed out: [%v]", cmd)
 	}
 }
 
@@ -150,7 +150,7 @@ func (s *Ssmgr) addPort(port int, password string) error {
 
 func (s *Ssmgr) removePort(port int) error {
 	s.console <- fmt.Sprintf(`control request: [remove: {"server_port": %v}]`, port)
-	err := s.sendCommand(fmt.Sprintf(`remove: {"server_port": %v}`, port))
+	res, err := s.sendCommand(fmt.Sprintf(`remove: {"server_port": %v}`, port))
 	if err != nil {
 		return err
 	}
@@ -220,12 +220,7 @@ func (s *Ssmgr) startManager() error {
 	go func() {
 
 		time.Sleep(1 * time.Second)
-		err := s.connect()
-		if err != nil {
-			ch <- err
-			return
-		}
-		err = s.ping()
+		err := s.ping()
 		if err != nil {
 			ch <- err
 			return
@@ -250,7 +245,7 @@ func (s *Ssmgr) startManager() error {
 }
 
 //Start the ssmgr daemon
-func (s *Ssmgr) Start(console chan string) error {
+func (s *Ssmgr) Start(console chan string) {
 	//start ssmgr
 	go func() {
 		for {

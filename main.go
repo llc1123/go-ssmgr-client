@@ -10,17 +10,15 @@ func main() {
 	//INITIALIZE
 	mgrPort := 4000
 	mgrCrypto := "chacha20-ietf-poly1305"
-	s := ssmgr.NewSsmgr(mgrPort, mgrCrypto)
+	s, err := ssmgr.NewSsmgr(mgrPort, mgrCrypto)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	console := make(chan string)
-	fatal := make(chan string)
 
 	//START SSMGR MODULE
-	go func() {
-		err := s.Start(console)
-		if err != nil {
-			fatal <- fmt.Sprint(err)
-		}
-	}()
+	go s.Start(console)
 
 	//START CONTROL MODULE
 	go func() {
@@ -51,9 +49,6 @@ func main() {
 		select {
 		case c := <-console:
 			fmt.Println(c)
-		case c := <-fatal:
-			fmt.Println(c)
-			return
 		}
 	}
 }
