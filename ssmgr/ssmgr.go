@@ -202,49 +202,40 @@ func (s *Ssmgr) SetPorts(p map[int]string) map[int]int {
 
 func (s *Ssmgr) startManager() error {
 
-	ch := make(chan error)
-
 	//create ssmgr process
-	go func() {
-		cmd := exec.Command(
-			"ssserver",
-			"-m", s.mgrCrypto,
-			"-p", "8888",
-			"-k", "8888",
-			"--manager-address", fmt.Sprintf("127.0.0.1:%v", s.mgrPort),
-		)
-		err := cmd.Run()
-		if err != nil {
-			ch <- err
-		}
-	}()
+	cmd := exec.Command(
+		"ssserver",
+		"-m", s.mgrCrypto,
+		"-p", "8888",
+		"-k", "8888",
+		"--manager-address", fmt.Sprintf("127.0.0.1:%v", s.mgrPort),
+	)
+	err := cmd.Start()
+	if err != nil {
+		return err
+	}
+	defer cmd.Process.Kill()
 
 	//make the first connection and add ports
-	go func() {
-
-		time.Sleep(1 * time.Second)
-		err := s.ping()
+	time.Sleep(1 * time.Second)
+	err = s.ping()
+	if err != nil {
+		return err
+	}
+	err = s.removePort(8888)
+	if err != nil {
+		return err
+	}
+	for pt, pw := range s.ports {
+		err = s.addPort(pt, pw)
 		if err != nil {
-			ch <- err
-			return
+			return err
 		}
-		err = s.removePort(8888)
-		if err != nil {
-			ch <- err
-			return
-		}
-		for pt, pw := range s.ports {
-			err = s.addPort(pt, pw)
-			if err != nil {
-				ch <- err
-				return
-			}
-		}
-		s.portsMux.Unlock()
-	}()
+	}
 
+	s.portsMux.Unlock()
 	defer s.portsMux.Lock()
-	return <-ch
+	return cmd.Wait()
 }
 
 //Start the ssmgr daemon
