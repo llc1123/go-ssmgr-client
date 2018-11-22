@@ -73,7 +73,10 @@ func (s *Ssmgr) listen() {
 			}
 		} else {
 			s.console <- fmt.Sprintf("control response: [%v]", res)
-			s.control <- res
+			select {
+			case s.control <- res:
+			default:
+			}
 		}
 	}
 }
