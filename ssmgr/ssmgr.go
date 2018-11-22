@@ -225,7 +225,6 @@ func (s *Ssmgr) startManager() error {
 			ch <- err
 			return
 		}
-		s.listenMux.Unlock()
 		err = s.ping()
 		if err != nil {
 			ch <- err
