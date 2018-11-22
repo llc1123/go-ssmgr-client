@@ -8,15 +8,15 @@ import (
 
 func main() {
 	//INITIALIZE
-	addr := "localhost:4000"
-	s := ssmgr.NewSsmgr(addr)
+	mgrPort := 4000
+	mgrCrypto := "chacha20-ietf-poly1305"
+	s := ssmgr.NewSsmgr(mgrPort, mgrCrypto)
 	console := make(chan string)
-	ready := make(chan bool)
 	fatal := make(chan string)
 
 	//START SSMGR MODULE
 	go func() {
-		err := s.Start(console, ready)
+		err := s.Start(console)
 		if err != nil {
 			fatal <- fmt.Sprint(err)
 		}
@@ -24,7 +24,6 @@ func main() {
 
 	//START CONTROL MODULE
 	go func() {
-		<-ready
 		s.SetPorts(map[int]string{
 			10001: "abc",
 			10002: "bcd",
