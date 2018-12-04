@@ -190,13 +190,25 @@ func (s *Ssmgr) SetPorts(p map[int]string) map[int]int {
 		}
 	}
 	for _, pt := range remove {
-		s.removePort(pt)
+		err := s.removePort(pt)
+		if err != nil {
+			s.console <- fmt.Sprint(err)
+			continue
+		}
+		delete(s.ports, pt)
 	}
 	flow := s.GetFlow()
 	for pt, pw := range add {
-		s.addPort(pt, pw)
+		err := s.addPort(pt, pw)
+		if err != nil {
+			s.console <- fmt.Sprint(err)
+			continue
+		}
+		if s.ports[pt] == "" {
+			s.ports[pt] = pw
+		}
 	}
-	s.ports = p
+	// s.ports = p
 	return flow
 }
 
@@ -218,10 +230,7 @@ func (s *Ssmgr) startManager() error {
 
 	//make the first connection and add ports
 	time.Sleep(1 * time.Second)
-	err = s.ping()
-	if err != nil {
-		return err
-	}
+
 	err = s.removePort(8888)
 	if err != nil {
 		return err
