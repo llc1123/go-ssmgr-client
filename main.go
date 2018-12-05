@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/llc1123/go-ssmgr-client/ssmgr"
+	"github.com/llc1123/go-ssmgr-client/ssmgr-python"
 )
 
 func main() {
