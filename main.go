@@ -10,7 +10,7 @@ func main() {
 	//INITIALIZE
 	mgrPort := 4000
 	mgrCrypto := "chacha20-ietf-poly1305"
-	s, err := ssmgr.NewSsmgr(mgrPort, mgrCrypto)
+	s, err := ssmgrPython.NewSsmgr(mgrPort, mgrCrypto)
 	if err != nil {
 		fmt.Println(err)
 		return

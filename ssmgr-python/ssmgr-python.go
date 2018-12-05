@@ -1,4 +1,4 @@
-package ssmgr
+package ssmgrPython
 
 import (
 	"encoding/json"
